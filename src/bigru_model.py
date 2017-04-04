@@ -206,7 +206,8 @@ class BiGRUModel(object):
                   encoder_inputs,
                   encoder_len,
                   max_len=12,
-                  geneos=True):
+                  geneos=True,
+                  vocab_mask=None):
 
         beam_size = self.batch_size
 
@@ -255,6 +256,8 @@ class BiGRUModel(object):
             tok_logsoftmax = np.asarray(outputs[1])
             tok_logsoftmax = tok_logsoftmax.reshape(
                 [beam_size, self.target_vocab_size])
+            if not vocab_mask is None:
+                tok_logsoftmax += (1 - vocab_mask) * (-1e8)
             if not geneos:
                 tok_logsoftmax[:, data_util.ID_EOS] = -1e8
 

@@ -184,6 +184,17 @@ def load_test_data(doc_filename, doc_dict):
 
     return docid
 
+def project_vocab(vocab_from, vocab_to):
+    tok2id_from = vocab_from[0]
+    tok2id_to = vocab_to[0]
+
+    proj = {}
+    for tok, id in tok2id_from.items():
+        if tok in tok2id_to:
+            proj[id] = tok2id_to[tok]
+    return proj
+
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG,

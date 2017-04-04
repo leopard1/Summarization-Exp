@@ -187,6 +187,7 @@ def decode():
     # Load vocabularies.
     doc_dict = data_util.load_dict(FLAGS.data_dir + "/doc_dict.txt")
     sum_dict = data_util.load_dict(FLAGS.data_dir + "/sum_dict.txt")
+    align = data_util.project_vocab(doc_dict, sum_dict)
     if doc_dict is None or sum_dict is None:
         logging.warning("Dict not found.")
     data = data_util.load_test_data(FLAGS.test_file, doc_dict)
@@ -205,6 +206,12 @@ def decode():
                 model.get_batch(
                     {0: [(token_ids, [data_util.ID_GO, data_util.ID_EOS])]}, 0)
 
+            vocab_mask = np.zeros(FLAGS.target_vocab_size, dtype='float32')
+            for item in token_ids:
+                if item in align:
+                    vocab_mask[align[item]] = 1.
+            vocab_mask[data_util.ID_EOS] = 1.
+
             if FLAGS.batch_size == 1 and FLAGS.geneos:
                 loss, outputs = model.step(sess,
                     encoder_inputs, decoder_inputs,
@@ -213,7 +220,8 @@ def decode():
                 outputs = [np.argmax(item) for item in outputs[0]]
             else:
                 outputs = model.step_beam(
-                    sess, encoder_inputs, encoder_len, geneos=FLAGS.geneos)
+                    sess, encoder_inputs, encoder_len, geneos=FLAGS.geneos,
+                    vocab_mask=vocab_mask)
 
             # If there is an EOS symbol in outputs, cut them at that point.
             if data_util.ID_EOS in outputs:
