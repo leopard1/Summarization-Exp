@@ -16,8 +16,9 @@ ID_GO = 3
 def load_dict(dict_path, max_vocab=None):
     logging.info("Try load dict from {}.".format(dict_path))
     try:
-        dict_file = open(dict_path)
+        dict_file = open(dict_path, "rb")
         dict_data = dict_file.readlines()
+        dict_data = list(map(lambda x: x.decode("utf8"), dict_data))
         dict_file.close()
     except:
         logging.info(
@@ -60,7 +61,7 @@ def create_dict(dict_path, corpus, max_vocab=None):
     id2tok = dict()
     with open(dict_path, 'w') as dict_file:
         for idx, tok in enumerate(words):
-            print(idx, tok, file=dict_file)
+            print(idx, tok.encode("utf8"), file=dict_file)
             tok2id[tok] = idx
             id2tok[idx] = tok
 
@@ -100,10 +101,12 @@ def load_data(doc_filename,
         "Load document from {}; summary from {}.".format(
             doc_filename, sum_filename))
 
-    with open(doc_filename) as docfile:
+    with open(doc_filename, "rb") as docfile:
         docs = docfile.readlines()
-    with open(sum_filename) as sumfile:
+    docs = list(map(lambda x: x.decode("utf8"), docs))
+    with open(sum_filename, "rb") as sumfile:
         sums = sumfile.readlines()
+    sums = list(map(lambda x: x.decode("utf8"), sums))
     assert len(docs) == len(sums)
     logging.info("Load {num} pairs of data.".format(num=len(docs)))
 
@@ -135,10 +138,12 @@ def load_valid_data(doc_filename,
     logging.info(
         "Load validation document from {}; summary from {}.".format(
             doc_filename, sum_filename))
-    with open(doc_filename) as docfile:
+    with open(doc_filename, "rb") as docfile:
         docs = docfile.readlines()
-    with open(sum_filename) as sumfile:
+    docs = list(map(lambda x: x.decode("utf8"), docs))
+    with open(sum_filename, "rb") as sumfile:
         sums = sumfile.readlines()
+    sums = list(map(lambda x: x.decode("utf8"), sums))
     assert len(sums) == len(docs)
 
     logging.info("Load {} validation documents.".format(len(docs)))
@@ -171,8 +176,9 @@ def sen_postprocess(sen):
 def load_test_data(doc_filename, doc_dict):
     logging.info("Load test document from {doc}.".format(doc=doc_filename))
 
-    with open(doc_filename) as docfile:
+    with open(doc_filename, "rb") as docfile:
         docs = docfile.readlines()
+    docs = list(map(lambda x: x.decode("utf8"), docs))
     docs = corpus_preprocess(docs)
 
     logging.info("Load {num} testing documents.".format(num=len(docs)))
@@ -191,9 +197,9 @@ if __name__ == "__main__":
                         datefmt='%b %d %H:%M')
 
     docid, sumid, doc_dict, sum_dict = load_data(
-        "data/train.article.txt", "data/train.title.txt",
-        "data/doc_dict.txt", "data/sum_dict.txt",
-        30000, 30000)
+        "cndata/I-doc.txt", "cndata/I-sum.txt",
+        "cndata/doc_dict.txt", "cndata/sum_dict.txt",
+        8000, 8000)
 
     checkid = np.random.randint(len(docid))
     print(checkid)
@@ -201,7 +207,7 @@ if __name__ == "__main__":
     print(sumid[checkid], sen_map2tok(sumid[checkid], sum_dict[1]))
 
     docid, sumid = load_valid_data(
-        "data/valid.article.filter.txt", "data/valid.title.filter.txt",
+        "cndata/II-doc-filter.txt", "data/II-sum-filter.txt",
         doc_dict, sum_dict)
 
     checkid = np.random.randint(len(docid))
@@ -209,7 +215,7 @@ if __name__ == "__main__":
     print(docid[checkid], sen_map2tok(docid[checkid], doc_dict[1]))
     print(sumid[checkid], sen_map2tok(sumid[checkid], sum_dict[1]))
 
-    docid = load_test_data("data/test.giga.txt", doc_dict)
+    docid = load_test_data("cndata/III-doc-filter.txt", doc_dict)
     checkid = np.random.randint(len(docid))
     print(checkid)
     print(docid[checkid], sen_map2tok(docid[checkid], doc_dict[1]))

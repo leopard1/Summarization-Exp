@@ -15,7 +15,7 @@ tf.app.flags.DEFINE_float("learning_rate", 1., "Learning rate.")
 tf.app.flags.DEFINE_integer("size", 400, "Size of hidden layers.")
 tf.app.flags.DEFINE_integer("embsize", 200, "Size of embedding.")
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
-tf.app.flags.DEFINE_string("data_dir", "data", "Data directory")
+tf.app.flags.DEFINE_string("data_dir", "cndata", "Data directory")
 tf.app.flags.DEFINE_string("test_file", "", "Test filename.")
 tf.app.flags.DEFINE_string("test_output", "output.txt", "Test output.")
 tf.app.flags.DEFINE_string("train_dir", "model", "Training directory.")
@@ -28,9 +28,9 @@ tf.app.flags.DEFINE_float(
 tf.app.flags.DEFINE_integer(
     "batch_size", 80, "Batch size in training / beam size in testing.")
 tf.app.flags.DEFINE_integer(
-    "doc_vocab_size", 30000, "Document vocabulary size.")
+    "doc_vocab_size", 8000, "Document vocabulary size.")
 tf.app.flags.DEFINE_integer(
-    "sum_vocab_size", 30000, "Summary vocabulary size.")
+    "sum_vocab_size", 8000, "Summary vocabulary size.")
 tf.app.flags.DEFINE_integer(
     "max_train", 0, "Limit on the size of training data (0: no limit).")
 tf.app.flags.DEFINE_integer(
@@ -94,16 +94,16 @@ def train():
     logging.info("Preparing summarization data.")
     docid, sumid, doc_dict, sum_dict = \
         data_util.load_data(
-            FLAGS.data_dir + "/train.article.txt",
-            FLAGS.data_dir + "/train.title.txt",
+            FLAGS.data_dir + "/I-doc.txt",
+            FLAGS.data_dir + "/I-sum.txt",
             FLAGS.data_dir + "/doc_dict.txt",
             FLAGS.data_dir + "/sum_dict.txt",
             FLAGS.doc_vocab_size, FLAGS.sum_vocab_size)
 
     val_docid, val_sumid = \
         data_util.load_valid_data(
-            FLAGS.data_dir + "/valid.article.filter.txt",
-            FLAGS.data_dir + "/valid.title.filter.txt",
+            FLAGS.data_dir + "/II-doc-filter.txt",
+            FLAGS.data_dir + "/II-sum-filter.txt",
             doc_dict, sum_dict)
 
     with tf.Session() as sess:
@@ -224,7 +224,7 @@ def decode():
             logging.info("Finish {} samples. :: {}".format(idx, gen_sum[:75]))
         with open(FLAGS.test_output, "w") as f:
             for item in result:
-                print(item, file=f)
+                print(item.encode("utf8"), file=f)
 
 def main(_):
     if FLAGS.decode:
