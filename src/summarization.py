@@ -45,7 +45,7 @@ tf.app.flags.DEFINE_string(
 FLAGS = tf.app.flags.FLAGS
 
 # We use a number of buckets for sampling
-_buckets = [(30, 10), (50, 20), (70, 20), (100, 20), (200, 30)]
+_buckets = [(100, 20), (150, 20), (200, 30)]
 
 
 def create_bucket(source, target):
