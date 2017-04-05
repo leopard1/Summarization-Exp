@@ -215,6 +215,10 @@ class BiGRUModel(object):
             encoder_inputs = np.repeat(encoder_inputs, beam_size, axis=0)
             encoder_len = np.repeat(encoder_len, beam_size, axis=0)
 
+        if vocab_mask is None:
+            vocab_mask = np.ones(self.target_vocab_size, dtype="float32")
+        vocab_mask = np.repeat(vocab_mask, beam_size, axis=0)
+
         if encoder_inputs.shape[1] != max(encoder_len):
             raise ValueError("encoder_inputs and encoder_len does not fit")
         #generate attention_states
@@ -272,6 +276,8 @@ class BiGRUModel(object):
             prev_tok = tok_argsort[arg0, arg1] #current word
             prev_state = outputs[2][arg0]
             score = tok_argsort_score[arg0, arg1]
+            vocab_mask = vocab_mask[arg0]
+            vocab_mask[np.arange(beam_size), prev_tok] = 0
 
             neos = neos[arg0] & (prev_tok != data_util.ID_EOS)
 
