@@ -5,13 +5,13 @@ import os
 
 model_path = "model/"
 model_pattern = "model/{}.ckpt-{}"
-data_pattern = "data/test.{}.txt"
+data_pattern = "data/{}.txt"
 OUTPUT_DIR = "output/"
 OUTPUT_PATTERN = OUTPUT_DIR + "{dataset}.{description}.txt"
 MAX_KEEP = 1
 
-datasets = ["giga", "duc2003", "duc2004"]
-geneos = [True, False, False]
+datasets = ["III-doc-filter"]
+geneos = [True]
 beam_searchs = [1, 10]
 
 test_params = {
