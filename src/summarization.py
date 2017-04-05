@@ -206,7 +206,7 @@ def decode():
                 model.get_batch(
                     {0: [(token_ids, [data_util.ID_GO, data_util.ID_EOS])]}, 0)
 
-            vocab_mask = np.zeros(FLAGS.target_vocab_size, dtype='float32')
+            vocab_mask = np.zeros(FLAGS.sum_vocab_size, dtype='float32')
             for item in token_ids:
                 if item in align:
                     vocab_mask[align[item]] = 1.
