@@ -59,9 +59,9 @@ def create_dict(dict_path, corpus, max_vocab=None):
 
     tok2id = dict()
     id2tok = dict()
-    with open(dict_path, 'w') as dict_file:
+    with open(dict_path, 'w', encoding='utf-8') as dict_file:
         for idx, tok in enumerate(words):
-            print(idx, tok.encode("utf8"), file=dict_file)
+            print(idx, tok, file=dict_file)
             tok2id[tok] = idx
             id2tok[idx] = tok
 

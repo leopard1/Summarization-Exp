@@ -205,7 +205,7 @@ class BiGRUModel(object):
                   session,
                   encoder_inputs,
                   encoder_len,
-                  max_len=12,
+                  max_len=30,
                   geneos=True):
 
         beam_size = self.batch_size

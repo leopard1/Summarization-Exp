@@ -222,9 +222,9 @@ def decode():
             gen_sum = data_util.sen_postprocess(gen_sum)
             result.append(gen_sum)
             logging.info("Finish {} samples. :: {}".format(idx, gen_sum[:75]))
-        with open(FLAGS.test_output, "w") as f:
+        with open(FLAGS.test_output, "w", encoding='utf-8') as f:
             for item in result:
-                print(item.encode("utf8"), file=f)
+                print(item, file=f)
 
 def main(_):
     if FLAGS.decode:
