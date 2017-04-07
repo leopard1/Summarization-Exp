@@ -5,7 +5,7 @@ import os
 
 model_path = "model/"
 model_pattern = "model/{}.ckpt-{}"
-data_pattern = "data/test.{}.txt"
+data_pattern = "data/test.{}.key.txt"
 OUTPUT_DIR = "output/"
 OUTPUT_PATTERN = OUTPUT_DIR + "{dataset}.{description}.txt"
 MAX_KEEP = 1

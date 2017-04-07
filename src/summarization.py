@@ -45,7 +45,7 @@ tf.app.flags.DEFINE_string(
 FLAGS = tf.app.flags.FLAGS
 
 # We use a number of buckets for sampling
-_buckets = [(30, 10), (50, 20), (70, 20), (100, 20), (200, 30)]
+_buckets = [(20, 20), (20, 30)]
 
 
 def create_bucket(source, target):
@@ -94,7 +94,7 @@ def train():
     logging.info("Preparing summarization data.")
     docid, sumid, doc_dict, sum_dict = \
         data_util.load_data(
-            FLAGS.data_dir + "/train.article.txt",
+            FLAGS.data_dir + "/train.article.key.txt",
             FLAGS.data_dir + "/train.title.txt",
             FLAGS.data_dir + "/doc_dict.txt",
             FLAGS.data_dir + "/sum_dict.txt",
@@ -102,7 +102,7 @@ def train():
 
     val_docid, val_sumid = \
         data_util.load_valid_data(
-            FLAGS.data_dir + "/valid.article.filter.txt",
+            FLAGS.data_dir + "/valid.article.filter.key.txt",
             FLAGS.data_dir + "/valid.title.filter.txt",
             doc_dict, sum_dict)
 
