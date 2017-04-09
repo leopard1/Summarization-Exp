@@ -12,7 +12,7 @@ MAX_KEEP = 5
 
 datasets = ["III-doc-filter"]
 geneos = [True]
-beam_searchs = [1, 10]
+beam_searchs = [10]
 
 test_params = {
     "--decode": True,
