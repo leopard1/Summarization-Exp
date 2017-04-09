@@ -8,7 +8,7 @@ model_pattern = "model/{}.ckpt-{}"
 data_pattern = "cndata/{}.txt"
 OUTPUT_DIR = "output/"
 OUTPUT_PATTERN = OUTPUT_DIR + "{dataset}.{description}.txt"
-MAX_KEEP = 1
+MAX_KEEP = 5
 
 datasets = ["III-doc-filter"]
 geneos = [True]
