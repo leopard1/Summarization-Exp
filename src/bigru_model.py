@@ -263,6 +263,9 @@ class BiGRUModel(object):
             tok_argsort_score = tok_logsoftmax[tmp_arg0, tok_argsort]
             tok_argsort_score *= neos.reshape([beam_size, 1])
             tok_argsort_score += score.reshape([beam_size, 1])
+            if i > 0:
+                tok_argsort_score += (tok_argsort_score / i) * \
+                    (1 - neos.reshape([beam_size, 1]))
             all_arg = np.argsort(tok_argsort_score.flatten())[-beam_size:]
             arg0 = all_arg // beam_size #previous id in batch
             arg1 = all_arg % beam_size
