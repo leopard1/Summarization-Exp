@@ -263,6 +263,9 @@ class BiGRUModel(object):
             tok_argsort_score = tok_logsoftmax[tmp_arg0, tok_argsort]
             tok_argsort_score *= neos.reshape([beam_size, 1])
             tok_argsort_score += score.reshape([beam_size, 1])
+            if i > 0:
+                tok_argsort_score += (tok_argsort_score / i) * \
+                    (1 - neos.reshape([beam_size, 1]))
             all_arg = np.argsort(tok_argsort_score.flatten())[-beam_size:]
             arg0 = all_arg // beam_size #previous id in batch
             arg1 = all_arg % beam_size
@@ -286,7 +289,36 @@ class BiGRUModel(object):
         data = list(data)
         return np.asarray(data)
 
-    def get_batch(self, data, bucket_id):
+    def add_noise(self, data):
+        tmp = data[:]
+        k = np.random.randint(12) + 1
+        for i in range(k):
+            state = np.random.randint(6)
+            if state <= 1:
+                # erase word
+                if len(tmp) > 1:
+                    id = np.random.randint(len(tmp))
+                    del tmp[id]
+            elif state <= 3:
+                # change order
+                if len(tmp) > 1:
+                    id = np.random.randint(len(tmp) - 1)
+                    tmp[id], tmp[id+1] = tmp[id+1], tmp[id]
+            elif state <= 4:
+                # duplicate
+                if len(tmp) > 0:
+                    id = np.random.randint(len(tmp))
+                    id2 = np.random.randint(len(tmp) + 1)
+                    tmp.insert(id2, tmp[id])
+            else:
+                # add noise word
+                id = np.random.randint(5000) + 4
+                id2 = np.random.randint(len(tmp) + 1)
+                tmp.insert(id2, id)
+        return tmp
+
+
+    def get_batch(self, data, bucket_id, noise=False):
         encoder_inputs, decoder_inputs = [], []
         encoder_len, decoder_len = [], []
 
@@ -294,6 +326,8 @@ class BiGRUModel(object):
         # and add GO to decoder.
         for _ in range(self.batch_size):
             encoder_input, decoder_input = random.choice(data[bucket_id])
+            if noise:
+                encoder_input = self.add_noise(encoder_input)
 
             encoder_inputs.append(encoder_input)
             encoder_len.append(len(encoder_input))

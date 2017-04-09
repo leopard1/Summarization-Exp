@@ -45,7 +45,7 @@ tf.app.flags.DEFINE_string(
 FLAGS = tf.app.flags.FLAGS
 
 # We use a number of buckets for sampling
-_buckets = [(30, 10), (50, 20), (70, 20), (100, 20), (200, 30)]
+_buckets = [(10, 10), (20, 20), (30, 30)]
 
 
 def create_bucket(source, target):
@@ -94,7 +94,7 @@ def train():
     logging.info("Preparing summarization data.")
     docid, sumid, doc_dict, sum_dict = \
         data_util.load_data(
-            FLAGS.data_dir + "/train.article.txt",
+            FLAGS.data_dir + "/train.title.txt",
             FLAGS.data_dir + "/train.title.txt",
             FLAGS.data_dir + "/doc_dict.txt",
             FLAGS.data_dir + "/sum_dict.txt",
@@ -102,7 +102,7 @@ def train():
 
     val_docid, val_sumid = \
         data_util.load_valid_data(
-            FLAGS.data_dir + "/valid.article.filter.txt",
+            FLAGS.data_dir + "/valid.title.filter.txt",
             FLAGS.data_dir + "/valid.title.filter.txt",
             doc_dict, sum_dict)
 
@@ -140,7 +140,7 @@ def train():
             # Get a batch and make a step.
             start_time = time.time()
             encoder_inputs, decoder_inputs, encoder_len, decoder_len = \
-                model.get_batch(train_set, bucket_id)
+                model.get_batch(train_set, bucket_id, noise=True)
             step_loss, _ = model.step(
                 sess, encoder_inputs, decoder_inputs,
                 encoder_len, decoder_len, False, train_writer)
@@ -172,7 +172,7 @@ def train():
                         logging.info("  eval: empty bucket %d" % (bucket_id))
                         continue
                     encoder_inputs, decoder_inputs, encoder_len, decoder_len =\
-                        model.get_batch(dev_set, bucket_id)
+                        model.get_batch(dev_set, bucket_id, noise=True)
                     eval_loss, _ = model.step(sess, encoder_inputs,
                                             decoder_inputs, encoder_len,
                                             decoder_len, True)
