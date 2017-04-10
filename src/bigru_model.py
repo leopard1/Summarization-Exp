@@ -44,9 +44,20 @@ class BiGRUModel(object):
         self.decoder_len = tf.placeholder(tf.int32, shape=[self.batch_size])
         self.previous_tok = tf.placeholder(tf.int32, shape=[self.batch_size])
         self.generate_len = tf.placeholder(tf.int32)
+        self.keys = tf.placeholder(tf.float32, shape=[None, None])
         # TODO should be [batch * state_size]
         self.attention_prev = tf.placeholder(
             tf.float32, shape=[None, state_size])
+
+
+        def to_distribution(x):
+            ss = tf.expand_dims(tf.reduce_sum(x, axis=1), 1)
+            return x / tf.maximum(ss, 1e-8)
+
+        def kl(x, y):
+            return x * (tf.log(tf.maximum(x, 1e-8)) - tf.log(tf.maximum(y, 1e-8)))
+
+        norm_keys = to_distribution(self.keys)
 
         single_cell = tf.contrib.rnn.GRUCell(state_size)
         if use_lstm:
@@ -93,7 +104,8 @@ class BiGRUModel(object):
 
                 if not forward_only:
                     decoder_fn = decoder_util.attention_decoder_fn_train(
-                        init_state, att_keys, att_values, att_scfn, att_cofn)
+                        init_state, att_keys, att_values, att_scfn, att_cofn,
+                        self.keys, self.decoder_len)
 
                     decoder_inputs_emb = tf.nn.embedding_lookup(
                         decoder_emb, self.decoder_inputs)
@@ -102,6 +114,8 @@ class BiGRUModel(object):
                         tf.contrib.seq2seq.dynamic_rnn_decoder(
                             cell, decoder_fn, inputs=decoder_inputs_emb,
                             sequence_length=self.decoder_len)
+
+                    norm_att_actual = to_distribution(final_context_state)
 
                     with tf.variable_scope("proj") as scope:
                         outputs_logits = fc_layer(
@@ -116,7 +130,12 @@ class BiGRUModel(object):
                         outputs_logits, self.decoder_targets, weights,
                         average_across_timesteps=False,
                         average_across_batch=False)
-                    self.loss = tf.reduce_sum(loss_t) / self.batch_size
+                    loss_kl = kl(norm_keys, norm_att_actual) + \
+                        kl(norm_att_actual, norm_keys)
+
+                    self.loss = (tf.reduce_sum(loss_t) + \
+                                tf.reduce_sum(loss_kl)) / \
+                                self.batch_size
 
                     params = tf.trainable_variables()
                     opt = tf.train.AdadeltaOptimizer(
@@ -129,6 +148,7 @@ class BiGRUModel(object):
                         global_step=self.global_step)
 
                     tf.summary.scalar('loss', self.loss)
+                    tf.summary.scalar('klloss', tf.reduce_sum(loss_kl))
                 else:
                     self.loss = tf.constant(0)
                     with tf.variable_scope("proj") as scope:
@@ -162,6 +182,7 @@ class BiGRUModel(object):
              session,
              encoder_inputs,
              decoder_inputs,
+             keys,
              encoder_len,
              decoder_len,
              forward_only,
@@ -180,6 +201,7 @@ class BiGRUModel(object):
         input_feed[self.decoder_targets.name] = decoder_inputs[:, 1:]
         input_feed[self.encoder_len] = encoder_len
         input_feed[self.decoder_len] = decoder_len
+        input_feed[self.keys] = keys
 
         if forward_only:
             st = np.ones([self.batch_size], dtype="int32") * data_util.ID_GO
@@ -204,8 +226,9 @@ class BiGRUModel(object):
     def step_beam(self,
                   session,
                   encoder_inputs,
+                  keys,
                   encoder_len,
-                  max_len=12,
+                  max_len=10,
                   geneos=True):
 
         beam_size = self.batch_size
@@ -220,6 +243,7 @@ class BiGRUModel(object):
         input_feed = {}
         input_feed[self.encoder_inputs] = encoder_inputs
         input_feed[self.encoder_len] = encoder_len
+        input_feed[self.keys] = keys
         output_feed = [self.att_states, self.init_state]
         outputs = session.run(output_feed, input_feed)
 
@@ -263,6 +287,10 @@ class BiGRUModel(object):
             tok_argsort_score = tok_logsoftmax[tmp_arg0, tok_argsort]
             tok_argsort_score *= neos.reshape([beam_size, 1])
             tok_argsort_score += score.reshape([beam_size, 1])
+            if i > 0:
+                tok_argsort_score += (tok_argsort_score / i) * \
+                    (1 - neos.reshape([beam_size, 1]))
+
             all_arg = np.argsort(tok_argsort_score.flatten())[-beam_size:]
             arg0 = all_arg // beam_size #previous id in batch
             arg1 = all_arg % beam_size
@@ -287,13 +315,13 @@ class BiGRUModel(object):
         return np.asarray(data)
 
     def get_batch(self, data, bucket_id):
-        encoder_inputs, decoder_inputs = [], []
+        encoder_inputs, decoder_inputs, keys = [], [], []
         encoder_len, decoder_len = [], []
 
         # Get a random batch of encoder and decoder inputs from data,
         # and add GO to decoder.
         for _ in range(self.batch_size):
-            encoder_input, decoder_input = random.choice(data[bucket_id])
+            encoder_input, decoder_input, key = random.choice(data[bucket_id])
 
             encoder_inputs.append(encoder_input)
             encoder_len.append(len(encoder_input))
@@ -301,14 +329,18 @@ class BiGRUModel(object):
             decoder_inputs.append(decoder_input)
             decoder_len.append(len(decoder_input))
 
+            keys.append(key)
+
         batch_enc_len = max(encoder_len)
         batch_dec_len = max(decoder_len)
 
         encoder_inputs = self.add_pad(encoder_inputs, batch_enc_len)
         decoder_inputs = self.add_pad(decoder_inputs, batch_dec_len)
+        keys = map(lambda x: np.pad(x, (0, batch_enc_len - len(x)), mode="constant"), keys)
+        keys = np.asarray(list(keys))
         encoder_len = np.asarray(encoder_len)
         # decoder_input has both <GO> and <EOS>
         # len(decoder_input)-1 is number of steps in the decoder.
         decoder_len = np.asarray(decoder_len) - 1
 
-        return encoder_inputs, decoder_inputs, encoder_len, decoder_len
+        return encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len

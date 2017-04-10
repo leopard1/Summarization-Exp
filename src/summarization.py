@@ -17,6 +17,7 @@ tf.app.flags.DEFINE_integer("embsize", 200, "Size of embedding.")
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
 tf.app.flags.DEFINE_string("data_dir", "data", "Data directory")
 tf.app.flags.DEFINE_string("test_file", "", "Test filename.")
+tf.app.flags.DEFINE_string("testkey_file", "", "Testkey filename.")
 tf.app.flags.DEFINE_string("test_output", "output.txt", "Test output.")
 tf.app.flags.DEFINE_string("train_dir", "model", "Training directory.")
 tf.app.flags.DEFINE_string("tfboard", "tfboard", "Tensorboard log directory.")
@@ -48,13 +49,14 @@ FLAGS = tf.app.flags.FLAGS
 _buckets = [(30, 10), (50, 20), (70, 20), (100, 20), (200, 30)]
 
 
-def create_bucket(source, target):
+def create_bucket(source, target, key):
     data_set = [[] for _ in _buckets]
-    for s, t in zip(source, target):
+    for s, t, k in zip(source, target, key):
         t = [data_util.ID_GO] + t + [data_util.ID_EOS]
+        assert(len(s) == len(k))
         for bucket_id, (s_size, t_size) in enumerate(_buckets):
             if len(s) <= s_size and len(t) <= t_size:
-                data_set[bucket_id].append([s, t])
+                data_set[bucket_id].append([s, t, k])
                 break
     return data_set
 
@@ -92,18 +94,20 @@ def create_model(session, forward_only):
 
 def train():
     logging.info("Preparing summarization data.")
-    docid, sumid, doc_dict, sum_dict = \
+    docid, sumid, key, doc_dict, sum_dict = \
         data_util.load_data(
             FLAGS.data_dir + "/train.article.txt",
             FLAGS.data_dir + "/train.title.txt",
+            FLAGS.data_dir + "/train.article.key.txt",
             FLAGS.data_dir + "/doc_dict.txt",
             FLAGS.data_dir + "/sum_dict.txt",
             FLAGS.doc_vocab_size, FLAGS.sum_vocab_size)
 
-    val_docid, val_sumid = \
+    val_docid, val_sumid, val_key = \
         data_util.load_valid_data(
             FLAGS.data_dir + "/valid.article.filter.txt",
             FLAGS.data_dir + "/valid.title.filter.txt",
+            FLAGS.data_dir + "/valid.article.filter.key.txt",
             doc_dict, sum_dict)
 
     with tf.Session() as sess:
@@ -115,8 +119,8 @@ def train():
 
         # Read data into buckets and compute their sizes.
         logging.info("Create buckets.")
-        dev_set = create_bucket(val_docid, val_sumid)
-        train_set = create_bucket(docid, sumid)
+        dev_set = create_bucket(val_docid, val_sumid, val_key)
+        train_set = create_bucket(docid, sumid, key)
 
         train_bucket_sizes = [len(train_set[b]) for b in range(len(_buckets))]
         train_total_size = float(sum(train_bucket_sizes))
@@ -139,10 +143,10 @@ def train():
 
             # Get a batch and make a step.
             start_time = time.time()
-            encoder_inputs, decoder_inputs, encoder_len, decoder_len = \
+            encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len = \
                 model.get_batch(train_set, bucket_id)
             step_loss, _ = model.step(
-                sess, encoder_inputs, decoder_inputs,
+                sess, encoder_inputs, decoder_inputs, keys,
                 encoder_len, decoder_len, False, train_writer)
 
             step_time += (time.time() - start_time) / \
@@ -171,10 +175,10 @@ def train():
                     if len(dev_set[bucket_id]) == 0:
                         logging.info("  eval: empty bucket %d" % (bucket_id))
                         continue
-                    encoder_inputs, decoder_inputs, encoder_len, decoder_len =\
+                    encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len =\
                         model.get_batch(dev_set, bucket_id)
                     eval_loss, _ = model.step(sess, encoder_inputs,
-                                            decoder_inputs, encoder_len,
+                                            decoder_inputs, keys, encoder_len,
                                             decoder_len, True)
                     eval_loss = eval_loss * FLAGS.batch_size \
                         / np.sum(decoder_len)
@@ -189,7 +193,9 @@ def decode():
     sum_dict = data_util.load_dict(FLAGS.data_dir + "/sum_dict.txt")
     if doc_dict is None or sum_dict is None:
         logging.warning("Dict not found.")
-    data = data_util.load_test_data(FLAGS.test_file, doc_dict)
+    data1, data2 = data_util.load_test_data(FLAGS.test_file,
+                                    FLAGS.testkey_file,
+                                    doc_dict)
 
     with tf.Session() as sess:
         # Create model and load parameters.
@@ -198,22 +204,22 @@ def decode():
         model = create_model(sess, True)
 
         result = []
-        for idx, token_ids in enumerate(data):
+        for idx, (token_ids, token_keys) in enumerate(zip(data1, data2)):
 
             # Get a 1-element batch to feed the sentence to the model.
-            encoder_inputs, decoder_inputs, encoder_len, decoder_len =\
+            encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len =\
                 model.get_batch(
-                    {0: [(token_ids, [data_util.ID_GO, data_util.ID_EOS])]}, 0)
+                    {0: [(token_ids, [data_util.ID_GO, data_util.ID_EOS], token_keys)]}, 0)
 
             if FLAGS.batch_size == 1 and FLAGS.geneos:
                 loss, outputs = model.step(sess,
-                    encoder_inputs, decoder_inputs,
+                    encoder_inputs, decoder_inputs, keys,
                     encoder_len, decoder_len, True)
 
                 outputs = [np.argmax(item) for item in outputs[0]]
             else:
                 outputs = model.step_beam(
-                    sess, encoder_inputs, encoder_len, geneos=FLAGS.geneos)
+                    sess, encoder_inputs, keys, encoder_len, geneos=FLAGS.geneos)
 
             # If there is an EOS symbol in outputs, cut them at that point.
             if data_util.ID_EOS in outputs:

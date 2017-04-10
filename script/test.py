@@ -6,6 +6,7 @@ import os
 model_path = "model/"
 model_pattern = "model/{}.ckpt-{}"
 data_pattern = "data/test.{}.txt"
+key_pattern = "data/test.{}.key.txt"
 OUTPUT_DIR = "output/"
 OUTPUT_PATTERN = OUTPUT_DIR + "{dataset}.{description}.txt"
 MAX_KEEP = 1
@@ -56,6 +57,7 @@ if __name__ == "__main__":
                     continue
                 proc = ["python3", "src/summarization.py",
                         "--test_file", data_pattern.format(dataset),
+                        "--testkey_file", key_pattern.format(dataset),
                         "--batch_size", str(beam_search),
                         "--test_output", output_file,
                         "--geneos", str(tag),

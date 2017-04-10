@@ -44,7 +44,7 @@ def create_dict(dict_path, corpus, max_vocab=None):
             except:
                 counter[word] = 1
 
-    for mark_t in MARK_EOS:
+    for mark_t in MARKS:
         if mark_t in counter:
             del counter[mark_t]
             logging.warning("{} appears in corpus.".format(mark_t))
@@ -52,7 +52,7 @@ def create_dict(dict_path, corpus, max_vocab=None):
     counter = list(counter.items())
     counter.sort(key=lambda x: -x[1])
     words = list(map(lambda x: x[0], counter))
-    words = [MARK_PAD, MARK_UNK, MARK_EOS, MARK_GO] + words
+    words = MARKS + words
     if max_vocab:
         words = words[:max_vocab]
 
@@ -92,6 +92,7 @@ def sen_map2tok(sen, id2tok):
 
 def load_data(doc_filename,
               sum_filename,
+              att_filename,
               doc_dict_path,
               sum_dict_path,
               max_doc_vocab=None,
@@ -104,11 +105,14 @@ def load_data(doc_filename,
         docs = docfile.readlines()
     with open(sum_filename) as sumfile:
         sums = sumfile.readlines()
+    with open(att_filename) as attfile:
+        atts = attfile.readlines()
     assert len(docs) == len(sums)
     logging.info("Load {num} pairs of data.".format(num=len(docs)))
 
     docs = list(map(lambda x: x.split(), docs))
     sums = list(map(lambda x: x.split(), sums))
+    atts = list(map(lambda x: np.asarray(x.split(), dtype="float32"), atts))
 
     doc_dict = load_dict(doc_dict_path, max_doc_vocab)
     if doc_dict is None:
@@ -125,11 +129,12 @@ def load_data(doc_filename,
     logging.info(
         "Sum dict covers {:.2f}% words.".format(cover * 100))
 
-    return docid, sumid, doc_dict, sum_dict
+    return docid, sumid, atts, doc_dict, sum_dict
 
 
 def load_valid_data(doc_filename,
                     sum_filename,
+                    att_filename,
                     doc_dict,
                     sum_dict):
     logging.info(
@@ -139,12 +144,15 @@ def load_valid_data(doc_filename,
         docs = docfile.readlines()
     with open(sum_filename) as sumfile:
         sums = sumfile.readlines()
+    with open(att_filename) as attfile:
+        atts = attfile.readlines()
     assert len(sums) == len(docs)
 
     logging.info("Load {} validation documents.".format(len(docs)))
 
     docs = list(map(lambda x: x.split(), docs))
     sums = list(map(lambda x: x.split(), sums))
+    atts = list(map(lambda x: np.asarray(x.split(), dtype="float32"), atts))
 
     docid, cover = corpus_map2id(docs, doc_dict[0])
     logging.info(
@@ -152,7 +160,7 @@ def load_valid_data(doc_filename,
     sumid, cover = corpus_map2id(sums, sum_dict[0])
     logging.info(
         "Sum dict covers {:.2f}% words on validation set.".format(cover * 100))
-    return docid, sumid
+    return docid, sumid, atts
 
 
 def corpus_preprocess(corpus):
@@ -168,21 +176,24 @@ def sen_postprocess(sen):
     return sen
 
 
-def load_test_data(doc_filename, doc_dict):
+def load_test_data(doc_filename, att_filename, doc_dict):
     logging.info("Load test document from {doc}.".format(doc=doc_filename))
 
     with open(doc_filename) as docfile:
         docs = docfile.readlines()
+    with open(att_filename) as attfile:
+        atts = attfile.readlines()
     docs = corpus_preprocess(docs)
 
     logging.info("Load {num} testing documents.".format(num=len(docs)))
     docs = list(map(lambda x: x.split(), docs))
+    atts = list(map(lambda x: np.asarray(x.split(), dtype="float32"), atts))
 
     docid, cover = corpus_map2id(docs, doc_dict[0])
     logging.info(
         "Doc dict covers {:.2f}% words.".format(cover * 100))
 
-    return docid
+    return docid, atts
 
 
 if __name__ == "__main__":

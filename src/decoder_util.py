@@ -18,6 +18,8 @@ def attention_decoder_fn_train(encoder_state,
                                attention_values,
                                attention_score_fn,
                                attention_construct_fn,
+                               std_keys,
+                               decoder_len,
                                name=None):
 
     with ops.name_scope(name, "attention_decoder_fn_train", [
@@ -34,11 +36,17 @@ def attention_decoder_fn_train(encoder_state,
 
                 # init attention
                 attention = _init_attention(encoder_state)
+                context_state = tf.zeros_like(std_keys)
             else:
                 # construct attention
-                attention = attention_construct_fn(cell_output, attention_keys,
-                                                   attention_values)
+                attention, weights = attention_construct_fn(
+                                        cell_output, attention_keys,
+                                        attention_values)
                 cell_output = attention
+                weights.set_shape([None, None])
+                att_mask = tf.cast(decoder_len >= time, tf.float32)
+                att_mask = tf.expand_dims(att_mask, 1)
+                context_state += weights * att_mask
 
             # combine cell_input and attention
             next_input = array_ops.concat([cell_input, attention], 1)
@@ -101,7 +109,7 @@ def attention_decoder_fn_inference(output_fn,
                 attention = attention_prev
             else:
                 # construct attention
-                attention = attention_construct_fn(
+                attention, weights = attention_construct_fn(
                     cell_output, attention_keys, attention_values)
                 cell_output = attention
 
@@ -170,12 +178,13 @@ def _create_attention_construct_fn(name, num_units, attention_score_fn, reuse):
     with variable_scope.variable_scope(name, reuse=reuse) as scope:
 
         def construct_fn(attention_query, attention_keys, attention_values):
-            context = attention_score_fn(attention_query, attention_keys,
-                                         attention_values)
+            context, weight = attention_score_fn(
+                                attention_query, attention_keys,
+                                attention_values)
             concat_input = array_ops.concat([attention_query, context], 1)
             attention = layers.linear(
                 concat_input, num_units, biases_initializer=None, scope=scope)
-            return attention
+            return attention, weight
 
         return construct_fn
 
@@ -235,12 +244,12 @@ def _create_attention_score_fn(name,
             scores = tf.exp(scores) * weights
             score_sum = array_ops.reshape(tf.reduce_sum(scores, 1), [-1, 1])
             alignments = scores / tf.maximum(score_sum, 1e-8)
-
+            alignments_out = alignments
             # Now calculate the attention-weighted vector.
             alignments = array_ops.expand_dims(alignments, 2)
             context_vector = math_ops.reduce_sum(alignments * values, [1])
             context_vector.set_shape([None, num_units])
 
-            return context_vector
+            return context_vector, alignments_out
 
         return attention_score_fn
