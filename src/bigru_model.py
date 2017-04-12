@@ -244,13 +244,18 @@ class BiGRUModel(object):
                   v_imp,
                   encoder_len,
                   max_len=10,
-                  geneos=True):
+                  geneos=True,
+                  vocab_mask=None):
 
         beam_size = self.batch_size
 
         if encoder_inputs.shape[0] == 1:
             encoder_inputs = np.repeat(encoder_inputs, beam_size, axis=0)
             encoder_len = np.repeat(encoder_len, beam_size, axis=0)
+
+        if vocab_mask is None:
+            vocab_mask = np.ones(self.target_vocab_size, dtype="float32")
+        vocab_mask = np.repeat([vocab_mask], beam_size, axis=0)
 
         if encoder_inputs.shape[1] != max(encoder_len):
             raise ValueError("encoder_inputs and encoder_len does not fit")
@@ -295,6 +300,8 @@ class BiGRUModel(object):
             tok_logsoftmax = np.asarray(outputs[1])
             tok_logsoftmax = tok_logsoftmax.reshape(
                 [beam_size, self.target_vocab_size])
+            if not vocab_mask is None:
+                tok_logsoftmax += (1 - vocab_mask) * (-1e8)
             if not geneos:
                 tok_logsoftmax[:, data_util.ID_EOS] = -1e8
 
@@ -306,13 +313,14 @@ class BiGRUModel(object):
             if i > 0:
                 tok_argsort_score += (tok_argsort_score / i) * \
                     (1 - neos.reshape([beam_size, 1]))
-
             all_arg = np.argsort(tok_argsort_score.flatten())[-beam_size:]
             arg0 = all_arg // beam_size #previous id in batch
             arg1 = all_arg % beam_size
             prev_tok = tok_argsort[arg0, arg1] #current word
             prev_state = outputs[2][arg0]
             score = tok_argsort_score[arg0, arg1]
+            vocab_mask = vocab_mask[arg0]
+            vocab_mask[np.arange(beam_size), prev_tok] = 0
 
             neos = neos[arg0] & (prev_tok != data_util.ID_EOS)
 
