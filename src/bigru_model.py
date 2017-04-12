@@ -45,6 +45,7 @@ class BiGRUModel(object):
         self.previous_tok = tf.placeholder(tf.int32, shape=[self.batch_size])
         self.generate_len = tf.placeholder(tf.int32)
         self.keys = tf.placeholder(tf.float32, shape=[None, None])
+        self.v_imp = tf.placeholder(tf.float32, shape=[self.batch_size, self.target_vocab_size])
         # TODO should be [batch * state_size]
         self.attention_prev = tf.placeholder(
             tf.float32, shape=[None, state_size])
@@ -58,6 +59,7 @@ class BiGRUModel(object):
             return x * (tf.log(tf.maximum(x, 1e-8)) - tf.log(tf.maximum(y, 1e-8)))
 
         norm_keys = to_distribution(self.keys)
+        norm_v_imp = to_distribution(self.v_imp)
 
         single_cell = tf.contrib.rnn.GRUCell(state_size)
         if use_lstm:
@@ -83,9 +85,10 @@ class BiGRUModel(object):
                         cell, cell, encoder_inputs_emb,
                         sequence_length=self.encoder_len, dtype=dtype)
 
-            with tf.variable_scope("init_state"):
-                init_state = fc_layer(
-                    tf.concat(encoder_states, 1), state_size)
+            with tf.variable_scope("init_state_new"):
+                t1 = tf.concat(encoder_states, 1)
+                t2 = tf.concat([t1, self.v_imp], 1)
+                init_state = fc_layer(t2, state_size)
                 self.init_state = init_state
 
             with tf.variable_scope("decoder"):
@@ -133,8 +136,15 @@ class BiGRUModel(object):
                     loss_kl = kl(norm_keys, norm_att_actual) + \
                         kl(norm_att_actual, norm_keys)
 
+                    out_softmax = tf.nn.softmax(outputs_logits)
+                    out_softmax_with_mask = out_softmax * tf.expand_dims(weights, 2)
+                    out_distrib = to_distribution(tf.reduce_max(out_softmax_with_mask, axis=1))
+
+                    loss_kl2 = kl(norm_v_imp, out_distrib) + kl(out_distrib, norm_v_imp)
+
                     self.loss = (tf.reduce_sum(loss_t) + \
-                                tf.reduce_sum(loss_kl)) / \
+                                tf.reduce_sum(loss_kl) + \
+                                tf.reduce_sum(loss_kl2)) / \
                                 self.batch_size
 
                     params = tf.trainable_variables()
@@ -147,8 +157,10 @@ class BiGRUModel(object):
                         zip(clipped_gradients, params),
                         global_step=self.global_step)
 
+                    tf.summary.scalar('originloss', tf.reduce_sum(loss_t))
                     tf.summary.scalar('loss', self.loss)
                     tf.summary.scalar('klloss', tf.reduce_sum(loss_kl))
+                    tf.summary.scalar('klloss2', tf.reduce_sum(loss_kl2))
                 else:
                     self.loss = tf.constant(0)
                     with tf.variable_scope("proj") as scope:
@@ -183,6 +195,7 @@ class BiGRUModel(object):
              encoder_inputs,
              decoder_inputs,
              keys,
+             v_imp,
              encoder_len,
              decoder_len,
              forward_only,
@@ -202,6 +215,7 @@ class BiGRUModel(object):
         input_feed[self.encoder_len] = encoder_len
         input_feed[self.decoder_len] = decoder_len
         input_feed[self.keys] = keys
+        input_feed[self.v_imp] = v_imp
 
         if forward_only:
             st = np.ones([self.batch_size], dtype="int32") * data_util.ID_GO
@@ -227,6 +241,7 @@ class BiGRUModel(object):
                   session,
                   encoder_inputs,
                   keys,
+                  v_imp,
                   encoder_len,
                   max_len=10,
                   geneos=True):
@@ -244,6 +259,7 @@ class BiGRUModel(object):
         input_feed[self.encoder_inputs] = encoder_inputs
         input_feed[self.encoder_len] = encoder_len
         input_feed[self.keys] = keys
+        input_feed[self.v_imp] = v_imp
         output_feed = [self.att_states, self.init_state]
         outputs = session.run(output_feed, input_feed)
 
@@ -314,14 +330,20 @@ class BiGRUModel(object):
         data = list(data)
         return np.asarray(data)
 
-    def get_batch(self, data, bucket_id):
+    def get_batch(self, data, bucket_id, align_dict):
         encoder_inputs, decoder_inputs, keys = [], [], []
         encoder_len, decoder_len = [], []
-
+        vocab_importance = np.zeros([self.batch_size, self.target_vocab_size])
         # Get a random batch of encoder and decoder inputs from data,
         # and add GO to decoder.
         for _ in range(self.batch_size):
             encoder_input, decoder_input, key = random.choice(data[bucket_id])
+
+            args = np.argsort(key)
+            for item in args[-10:]:
+                idx = encoder_input[item]
+                if idx in align_dict:
+                    vocab_importance[_][align_dict[idx]] = 1.
 
             encoder_inputs.append(encoder_input)
             encoder_len.append(len(encoder_input))
@@ -343,4 +365,4 @@ class BiGRUModel(object):
         # len(decoder_input)-1 is number of steps in the decoder.
         decoder_len = np.asarray(decoder_len) - 1
 
-        return encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len
+        return encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len, vocab_importance

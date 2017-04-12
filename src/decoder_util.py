@@ -46,7 +46,7 @@ def attention_decoder_fn_train(encoder_state,
                 weights.set_shape([None, None])
                 att_mask = tf.cast(decoder_len >= time, tf.float32)
                 att_mask = tf.expand_dims(att_mask, 1)
-                context_state += weights * att_mask
+                context_state = tf.maximum(context_state, weights * att_mask)
 
             # combine cell_input and attention
             next_input = array_ops.concat([cell_input, attention], 1)

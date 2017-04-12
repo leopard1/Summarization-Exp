@@ -99,9 +99,14 @@ def train():
             FLAGS.data_dir + "/train.article.txt",
             FLAGS.data_dir + "/train.title.txt",
             FLAGS.data_dir + "/train.article.key.txt",
+            # FLAGS.data_dir + "/valid.article.filter.txt",
+            # FLAGS.data_dir + "/valid.title.filter.txt",
+            # FLAGS.data_dir + "/valid.article.filter.key.txt",
             FLAGS.data_dir + "/doc_dict.txt",
             FLAGS.data_dir + "/sum_dict.txt",
             FLAGS.doc_vocab_size, FLAGS.sum_vocab_size)
+
+    align_dict = data_util.align_dict(doc_dict, sum_dict)
 
     val_docid, val_sumid, val_key = \
         data_util.load_valid_data(
@@ -143,10 +148,10 @@ def train():
 
             # Get a batch and make a step.
             start_time = time.time()
-            encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len = \
-                model.get_batch(train_set, bucket_id)
+            encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len, v_imp = \
+                model.get_batch(train_set, bucket_id, align_dict)
             step_loss, _ = model.step(
-                sess, encoder_inputs, decoder_inputs, keys,
+                sess, encoder_inputs, decoder_inputs, keys, v_imp,
                 encoder_len, decoder_len, False, train_writer)
 
             step_time += (time.time() - start_time) / \
@@ -175,10 +180,10 @@ def train():
                     if len(dev_set[bucket_id]) == 0:
                         logging.info("  eval: empty bucket %d" % (bucket_id))
                         continue
-                    encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len =\
-                        model.get_batch(dev_set, bucket_id)
+                    encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len, v_imp =\
+                        model.get_batch(dev_set, bucket_id, align_dict)
                     eval_loss, _ = model.step(sess, encoder_inputs,
-                                            decoder_inputs, keys, encoder_len,
+                                            decoder_inputs, keys, v_imp, encoder_len,
                                             decoder_len, True)
                     eval_loss = eval_loss * FLAGS.batch_size \
                         / np.sum(decoder_len)
@@ -191,6 +196,7 @@ def decode():
     # Load vocabularies.
     doc_dict = data_util.load_dict(FLAGS.data_dir + "/doc_dict.txt")
     sum_dict = data_util.load_dict(FLAGS.data_dir + "/sum_dict.txt")
+    align_dict = data_util.align_dict(doc_dict, sum_dict)
     if doc_dict is None or sum_dict is None:
         logging.warning("Dict not found.")
     data1, data2 = data_util.load_test_data(FLAGS.test_file,
@@ -207,19 +213,19 @@ def decode():
         for idx, (token_ids, token_keys) in enumerate(zip(data1, data2)):
 
             # Get a 1-element batch to feed the sentence to the model.
-            encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len =\
+            encoder_inputs, decoder_inputs, keys, encoder_len, decoder_len, v_imp =\
                 model.get_batch(
-                    {0: [(token_ids, [data_util.ID_GO, data_util.ID_EOS], token_keys)]}, 0)
+                    {0: [(token_ids, [data_util.ID_GO, data_util.ID_EOS], token_keys)]}, 0, align_dict)
 
             if FLAGS.batch_size == 1 and FLAGS.geneos:
                 loss, outputs = model.step(sess,
-                    encoder_inputs, decoder_inputs, keys,
+                    encoder_inputs, decoder_inputs, keys, v_imp,
                     encoder_len, decoder_len, True)
 
                 outputs = [np.argmax(item) for item in outputs[0]]
             else:
                 outputs = model.step_beam(
-                    sess, encoder_inputs, keys, encoder_len, geneos=FLAGS.geneos)
+                    sess, encoder_inputs, keys, v_imp, encoder_len, geneos=FLAGS.geneos)
 
             # If there is an EOS symbol in outputs, cut them at that point.
             if data_util.ID_EOS in outputs:

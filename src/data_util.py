@@ -68,6 +68,12 @@ def create_dict(dict_path, corpus, max_vocab=None):
         "Create dict {} with {} words.".format(dict_path, len(words)))
     return (tok2id, id2tok)
 
+def align_dict(d1, d2):
+    ret = {}
+    for tok, id in d1[0].items():
+        if tok in d2[0]:
+            ret[id] = d2[0][tok]
+    return ret
 
 def corpus_map2id(data, tok2id):
     ret = []
