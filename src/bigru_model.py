@@ -168,12 +168,25 @@ class BiGRUModel(object):
             with tf.variable_scope("discriminator") as dis_scope:
                 true_emb = tf.nn.embedding_lookup(
                     decoder_emb, self.decoder_targets)
-                true_sample = tf.nn.dynamic_rnn(dis_cell, true_emb)
-                true_sample = tf.nn.reduce_max(true_sample, axis=1)
-                fake_emb = tf.matmul(tf.nn.softmax(self.outputs),
-                    tf.expand_dims(decoder_emb, axis=0))
-                fake_sample = tf.nn.dynamic_rnn(dis_cell, fake_emb)
-                fake_sample = tf.nn.reduce_max(fake_sample, axis=1)
+                with tf.variable_scope("rnn"):
+                    true_sample, _ = tf.nn.dynamic_rnn(
+                        dis_cell, true_emb, dtype=dtype,
+                        sequence_length=self.decoder_len)
+                true_sample.set_shape([batch_size, None, state_size])
+                true_sample = tf.reduce_max(true_sample, axis=1)
+                softmax_t = tf.nn.softmax(self.outputs)
+                softmax_t = tf.reshape(softmax_t,
+                    [-1, self.target_vocab_size])
+                fake_emb = tf.matmul(softmax_t, decoder_emb)
+                fake_emb = tf.reshape(fake_emb,
+                    [batch_size, -1, embedding_size])
+
+                with tf.variable_scope("rnn", reuse=True):
+                    fake_sample, _ = tf.nn.dynamic_rnn(
+                        dis_cell, fake_emb, dtype=dtype,
+                        sequence_length=self.decoder_len)
+                fake_sample.set_shape([batch_size, None, state_size])
+                fake_sample = tf.reduce_max(fake_sample, axis=1)
                 with tf.variable_scope("proj1"):
                     true_feature = fc_layer(true_sample, state_size,
                         activation_fn=tf.nn.relu)
@@ -190,13 +203,16 @@ class BiGRUModel(object):
 
                 loss_true = tf.losses.sparse_softmax_cross_entropy(
                     tf.ones([batch_size], dtype=tf.int32), true_out)
+                loss_true = tf.reduce_mean(loss_true)
                 loss_fake = tf.losses.sparse_softmax_cross_entropy(
-                    tf.zeros([batch_size], dtype=tf.int32), fakes_out)
+                    tf.zeros([batch_size], dtype=tf.int32), fake_out)
+                loss_fake = tf.reduce_mean(loss_fake)
                 loss_fake_g = tf.losses.sparse_softmax_cross_entropy(
-                    tf.ones([batch_size], dtype=tf.int32), fakes_out)
+                    tf.ones([batch_size], dtype=tf.int32), fake_out)
+                loss_fake_g = tf.reduce_mean(loss_fake_g)
 
-                dis_param = tf.get_collection(
-                    tf.GraphKeys.TRAINABLE_VARIABLES, scope=dis_scope)
+                dis_params = tf.get_collection(
+                    tf.GraphKeys.TRAINABLE_VARIABLES, scope="discriminator")
 
                 optd = tf.train.AdadeltaOptimizer(
                     self.learning_rate, epsilon=1e-6, name="adamD")
@@ -218,8 +234,8 @@ class BiGRUModel(object):
                     zip(clipped_dis_gradients_g, params))
 
                 self.summary_gan = tf.summary.merge([
-                    tf.summary.scalar(self.loss_gan_g, name="loss_gan_g"),
-                    tf.summary.scalar(self.loss_gan_d, name="loss_gan_d")])
+                    tf.summary.scalar("loss_gan_g", self.loss_gan_g),
+                    tf.summary.scalar("loss_gan_d", self.loss_gan_d)])
                 self.saver_gan = tf.train.Saver(
                     tf.global_variables(), max_to_keep=0)
 
