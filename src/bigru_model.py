@@ -73,7 +73,8 @@ class BiGRUModel(object):
 
             with tf.variable_scope("init_state"):
                 init_state = fc_layer(
-                    tf.concat(encoder_states, 1), state_size)
+                    tf.concat(encoder_states, 1), state_size,
+                    activation_fn=None)
                 # the shape of bidirectional_dynamic_rnn is weird
                 # None for batch_size
                 self.init_state = init_state
@@ -135,9 +136,6 @@ class BiGRUModel(object):
                     tf.summary.scalar('loss', self.loss)
                 else:
                     self.loss = tf.constant(0)
-                    with tf.variable_scope("proj") as scope:
-                        output_fn = lambda x: fc_layer(
-                            x, target_vocab_size, scope=scope)
 
                     st_toks = tf.convert_to_tensor(
                         [data_util.ID_GO]*batch_size, dtype=tf.int32)
@@ -164,6 +162,67 @@ class BiGRUModel(object):
 
         self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=0)
         self.summary_merge = tf.summary.merge_all()
+
+        if not forward_only:
+            dis_cell = tf.contrib.rnn.GRUCell(state_size)
+            with tf.variable_scope("discriminator") as dis_scope:
+                true_emb = tf.nn.embedding_lookup(
+                    decoder_emb, self.decoder_targets)
+                true_sample = tf.nn.dynamic_rnn(dis_cell, true_emb)
+                true_sample = tf.nn.reduce_max(true_sample, axis=1)
+                fake_emb = tf.matmul(tf.nn.softmax(self.outputs),
+                    tf.expand_dims(decoder_emb, axis=0))
+                fake_sample = tf.nn.dynamic_rnn(dis_cell, fake_emb)
+                fake_sample = tf.nn.reduce_max(fake_sample, axis=1)
+                with tf.variable_scope("proj1"):
+                    true_feature = fc_layer(true_sample, state_size,
+                        activation_fn=tf.nn.relu)
+                with tf.variable_scope("proj1", reuse=True):
+                    fake_feature = fc_layer(fake_sample, state_size,
+                        activation_fn=tf.nn.relu)
+
+                with tf.variable_scope("classifier"):
+                    true_out = fc_layer(true_feature, 2,
+                        activation_fn=None)
+                with tf.variable_scope("classifier", reuse=True):
+                    fake_out = fc_layer(true_feature, 2,
+                        activation_fn=None)
+
+                loss_true = tf.losses.sparse_softmax_cross_entropy(
+                    tf.ones([batch_size], dtype=tf.int32), true_out)
+                loss_fake = tf.losses.sparse_softmax_cross_entropy(
+                    tf.zeros([batch_size], dtype=tf.int32), fakes_out)
+                loss_fake_g = tf.losses.sparse_softmax_cross_entropy(
+                    tf.ones([batch_size], dtype=tf.int32), fakes_out)
+
+                dis_param = tf.get_collection(
+                    tf.GraphKeys.TRAINABLE_VARIABLES, scope=dis_scope)
+
+                optd = tf.train.AdadeltaOptimizer(
+                    self.learning_rate, epsilon=1e-6, name="adamD")
+                self.loss_gan_d = loss_true+loss_fake
+                dis_gradients = tf.gradients(self.loss_gan_d, dis_params)
+                clipped_dis_gradients, norm = \
+                    tf.clip_by_global_norm(dis_gradients, max_gradient)
+                self.updates_d = optd.apply_gradients(
+                    zip(clipped_dis_gradients, dis_params))
+
+
+                optg = tf.train.AdadeltaOptimizer(
+                    self.learning_rate, epsilon=1e-6, name="adamG")
+                self.loss_gan_g = loss_fake_g
+                dis_gradients_g = tf.gradients(self.loss_gan_g, params)
+                clipped_dis_gradients_g, norm = \
+                    tf.clip_by_global_norm(dis_gradients_g, max_gradient)
+                self.updates_g = optg.apply_gradients(
+                    zip(clipped_dis_gradients_g, params))
+
+                self.summary_gan = tf.summary.merge([
+                    tf.summary.scalar(self.loss_gan_g, name="loss_gan_g"),
+                    tf.summary.scalar(self.loss_gan_d, name="loss_gan_d")])
+                self.saver_gan = tf.train.Saver(
+                    tf.global_variables(), max_to_keep=0)
+
 
     def step(self,
              session,
@@ -202,6 +261,37 @@ class BiGRUModel(object):
 
         if summary_writer:
             summary_writer.add_summary(outputs[2], outputs[3])
+        return outputs[:2]
+
+    def step_gan(self,
+                session,
+                encoder_inputs,
+                decoder_inputs,
+                encoder_len,
+                decoder_len,
+                forward_only,
+                summary_writer=None):
+        input_feed = {}
+        input_feed[self.encoder_inputs] = encoder_inputs
+        input_feed[self.decoder_inputs] = decoder_inputs[:, :-1]
+        input_feed[self.decoder_targets] = decoder_inputs[:, 1:]
+        input_feed[self.encoder_len] = encoder_len
+        input_feed[self.decoder_len] = decoder_len
+        input_feed[self.prev_att] = np.zeros(
+            [self.batch_size, 2 * self.state_size])
+
+        if forward_only:
+            output_feed = [self.loss_gan_d, self.loss_gan_g]
+        else:
+            output_feed = [self.loss_gan_d, self.loss_gan_g]
+
+        if summary_writer:
+            output_feed += [self.summary_gan, self.global_step]
+
+        outputs = session.run(output_feed, input_feed)
+
+        if summary_writer:
+            summary_writer.add_summary(outputs[-2], outputs[-1])
         return outputs[:2]
 
     def step_beam(self,
