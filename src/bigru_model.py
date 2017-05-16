@@ -198,7 +198,7 @@ class BiGRUModel(object):
                     true_out = fc_layer(true_feature, 2,
                         activation_fn=None)
                 with tf.variable_scope("classifier", reuse=True):
-                    fake_out = fc_layer(true_feature, 2,
+                    fake_out = fc_layer(fake_feature, 2,
                         activation_fn=None)
 
                 loss_true = tf.losses.sparse_softmax_cross_entropy(
@@ -237,7 +237,10 @@ class BiGRUModel(object):
                     tf.summary.scalar("loss_gan_g", self.loss_gan_g),
                     tf.summary.scalar("loss_gan_d", self.loss_gan_d)])
                 self.saver_gan = tf.train.Saver(
-                    tf.global_variables(), max_to_keep=0)
+                    tf.get_collection(
+                        tf.GraphKeys.GLOBAL_VARIABLES,
+                        scope="discriminator"),
+                    max_to_keep=0)
 
 
     def step(self,
@@ -299,7 +302,8 @@ class BiGRUModel(object):
         if forward_only:
             output_feed = [self.loss_gan_d, self.loss_gan_g]
         else:
-            output_feed = [self.loss_gan_d, self.loss_gan_g]
+            output_feed = [self.loss_gan_d, self.loss_gan_g,
+                self.updates_g, self.updates_d]
 
         if summary_writer:
             output_feed += [self.summary_gan, self.global_step]

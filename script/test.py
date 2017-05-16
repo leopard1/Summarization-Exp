@@ -16,7 +16,6 @@ beam_searchs = [1, 10]
 
 test_params = {
     "--decode": True,
-    "--fast_decode": True
 }
 
 

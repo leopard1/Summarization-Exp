@@ -22,6 +22,9 @@ tf.app.flags.DEFINE_string("train_dir", "model", "Training directory.")
 tf.app.flags.DEFINE_string("tfboard", "tfboard", "Tensorboard log directory.")
 tf.app.flags.DEFINE_boolean("decode", False, "Set to True for testing.")
 tf.app.flags.DEFINE_boolean("geneos", True, "Do not generate EOS. ")
+tf.app.flags.DEFINE_boolean("train_gan", False, "Enable GAN part. ")
+tf.app.flags.DEFINE_string("gan_dir", "model_gan", "Gan directory.")
+tf.app.flags.DEFINE_integer("gan_iter", 5, "Gan iterations. ")
 tf.app.flags.DEFINE_float(
     "max_gradient", 1.0, "Clip gradients l2 norm to this range.")
 tf.app.flags.DEFINE_integer(
@@ -75,16 +78,26 @@ def create_model(session, forward_only):
         dtype=dtype)
     if FLAGS.checkpoint != "":
         ckpt = FLAGS.checkpoint
+        ckpt_gan = None
     else:
         ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
         if ckpt:
             ckpt = ckpt.model_checkpoint_path
+        ckpt_gan = tf.train.get_checkpoint_state(FLAGS.gan_dir)
+        if ckpt_gan:
+            ckpt_gan = ckpt_gan.model_checkpoint_path
+
+    logging.info("Created model with fresh parameters.")
+    session.run(tf.global_variables_initializer())
+
+    if not forward_only and ckpt_gan and tf.train.checkpoint_exists(ckpt_gan):
+        logging.info("Reading gan parameters from %s" % ckpt_gan)
+        model.saver_gan.restore(session, ckpt_gan)
+
     if ckpt and tf.train.checkpoint_exists(ckpt):
         logging.info("Reading model parameters from %s" % ckpt)
         model.saver.restore(session, ckpt)
-    else:
-        logging.info("Created model with fresh parameters.")
-        session.run(tf.global_variables_initializer())
+
     return model
 
 
@@ -127,7 +140,7 @@ def train():
                 s_size, t_size, nsample))
 
         # This is the training loop.
-        step_time, loss = 0.0, 0.0
+        step_time, loss, gan_l1, gan_l2 = 0.0, 0.0, 0.0, 0.0
         current_step = sess.run(model.global_step)
 
         while current_step <= FLAGS.max_iter:
@@ -139,6 +152,7 @@ def train():
             start_time = time.time()
             encoder_inputs, decoder_inputs, encoder_len, decoder_len = \
                 model.get_batch(train_set, bucket_id)
+
             step_loss, _ = model.step(
                 sess, encoder_inputs, decoder_inputs,
                 encoder_len, decoder_len, False, train_writer)
@@ -147,6 +161,20 @@ def train():
                 FLAGS.steps_per_validation
             loss += step_loss * FLAGS.batch_size / np.sum(decoder_len) \
                 / FLAGS.steps_per_validation
+
+            if FLAGS.train_gan:
+                for gan_iter in range(FLAGS.gan_iter):
+                    bucket_id = min([i for i in range(len(train_buckets_scale))
+                                 if train_buckets_scale[i] > random_number_01])
+                    encoder_inputs, decoder_inputs, encoder_len, decoder_len = \
+                        model.get_batch(train_set, bucket_id)
+                    l1, l2 = model.step_gan(
+                        sess, encoder_inputs, decoder_inputs,
+                        encoder_len, decoder_len, False,
+                        train_writer if gan_iter == 0 else None)
+                    gan_l1 += l1 / FLAGS.steps_per_validation / FLAGS.gan_iter
+                    gan_l2 += l2 / FLAGS.steps_per_validation / FLAGS.gan_iter
+
             current_step += 1
 
             # Once in a while, we save checkpoint.
@@ -155,15 +183,21 @@ def train():
                 checkpoint_path = os.path.join(FLAGS.train_dir, "model.ckpt")
                 model.saver.save(sess, checkpoint_path,
                                  global_step=model.global_step)
-
+                if FLAGS.train_gan:
+                    checkpoint_path = os.path.join(FLAGS.gan_dir, "model.ckpt")
+                    model.saver_gan.save(sess, checkpoint_path)
             # Once in a while, we print statistics and run evals.
             if current_step % FLAGS.steps_per_validation == 0:
                 # Print statistics for the previous epoch.
                 perplexity = np.exp(float(loss))
                 logging.info(
-                    "global step %d step-time %.2f ppl %.2f" % (model.global_step.eval(), step_time, perplexity))
+                    "global step %d step-time %.2f ppl %.2f" %
+                    (model.global_step.eval(), step_time, perplexity))
 
-                step_time, loss = 0.0, 0.0
+                if FLAGS.train_gan:
+                    logging.info("--gan l1 %.2f l2 %.2f" % (gan_l1, gan_l2))
+
+                step_time, loss, gan_l1, gan_l2 = 0.0, 0.0, 0.0, 0.0
                 # Run evals on development set and print their perplexity.
                 for bucket_id in range(len(_buckets)):
                     if len(dev_set[bucket_id]) == 0:
@@ -179,6 +213,13 @@ def train():
                     eval_ppx = np.exp(float(eval_loss))
                     logging.info("  eval: bucket %d ppl %.2f" %
                                  (bucket_id, eval_ppx))
+
+                    l1, l2 = model.step_gan(
+                        sess, encoder_inputs, decoder_inputs,
+                        encoder_len, decoder_len, True, None)
+                    logging.info("  eval: bucket %d l1 %.2f l2 %.2f" %
+                                 (bucket_id, l1, l2))
+
                 sys.stdout.flush()
 
 def decode():
@@ -203,15 +244,19 @@ def decode():
                 model.get_batch(
                     {0: [(token_ids, [data_util.ID_GO, data_util.ID_EOS])]}, 0)
 
-            if FLAGS.batch_size == 1 and FLAGS.geneos:
-                loss, outputs = model.step(sess,
-                    encoder_inputs, decoder_inputs,
-                    encoder_len, decoder_len, True)
+            # TODO can't add maxlen constrain
+            # if FLAGS.batch_size == 1 and FLAGS.geneos:
+            #     loss, outputs = model.step(sess,
+            #         encoder_inputs, decoder_inputs,
+            #         encoder_len, decoder_len, True)
+            #
+            #     outputs = [np.argmax(item) for item in outputs[0]]
+            # else:
+            #     outputs = model.step_beam(
+            #         sess, encoder_inputs, encoder_len, geneos=FLAGS.geneos)
 
-                outputs = [np.argmax(item) for item in outputs[0]]
-            else:
-                outputs = model.step_beam(
-                    sess, encoder_inputs, encoder_len, geneos=FLAGS.geneos)
+            outputs = model.step_beam(
+                sess, encoder_inputs, encoder_len, geneos=FLAGS.geneos)
 
             # If there is an EOS symbol in outputs, cut them at that point.
             if data_util.ID_EOS in outputs:
@@ -236,6 +281,11 @@ if __name__ == "__main__":
                         datefmt='%b %d %H:%M')
     try:
         os.makedirs(FLAGS.train_dir)
+    except:
+        pass
+    try:
+        if FLAGS.train_gan:
+            os.makedirs(FLAGS.gan_dir)
     except:
         pass
     tf.app.run()

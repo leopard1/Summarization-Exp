@@ -7,6 +7,7 @@ MAX_STEPS = 300000
 STEPS_PER_VALIDATION = 1000
 STEPS_PER_CHECKPOINT = 20000
 TEST_THRESHOLD = 200000
+GAN_THRESHOLD = 200000
 
 train_params = {
     "--steps_per_validation": STEPS_PER_VALIDATION,
@@ -32,7 +33,8 @@ if __name__ == "__main__":
             global_step, terminate_step))
 
         proc = ["python3", "src/summarization.py",
-            "--max_iter", str(terminate_step)]
+                "--max_iter", str(terminate_step),
+                "--train_gan", str(global_step >= GAN_THRESHOLD)]
         for key, val in train_params.items():
             proc.append(key)
             proc.append(str(val))
